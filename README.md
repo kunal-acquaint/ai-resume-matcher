@@ -26,10 +26,19 @@ The frontend (`apps/frontend`) will be added later.
 ## Getting started
 
 ```bash
-npm run setup                                # install dependencies and build shared types
-cp apps/backend/.env.example apps/backend/.env   # optional: every value has a default
-npm run dev                                  # start the backend in watch mode
+npm run setup                                    # install dependencies and build shared types
+cp apps/backend/.env.example apps/backend/.env   # then set JWT_SECRET and the ADMIN_* values
+npm run seed:admin                               # create the first admin (safe to re-run)
+npm run dev                                      # start the backend in watch mode
 ```
+
+`JWT_SECRET` is required (at least 32 random characters). Generate one with:
+
+```bash
+node -e "console.log(require('node:crypto').randomBytes(48).toString('base64url'))"
+```
+
+All other API routes require logging in first: in Swagger, call `POST /api/auth/login` and the session cookie is used for the following requests.
 
 - API: http://localhost:3000/api
 - Health check: http://localhost:3000/api/health
@@ -39,12 +48,13 @@ npm run dev                                  # start the backend in watch mode
 
 Run from the repository root:
 
-| Script              | Description                                     |
-| :------------------ | :---------------------------------------------- |
-| `npm run dev`       | Shared types (watch) and backend (watch)        |
-| `npm run build`     | Build all workspaces                            |
-| `npm run typecheck` | Type-check all workspaces                       |
-| `npm run lint`      | Lint with oxlint (type-aware)                   |
-| `npm test`          | Unit tests (Vitest)                             |
-| `npm run test:e2e`  | End-to-end tests against an in-memory MongoDB   |
-| `npm run format`    | Format with Prettier (`format:check` to verify) |
+| Script               | Description                                     |
+| :------------------- | :---------------------------------------------- |
+| `npm run dev`        | Shared types (watch) and backend (watch)        |
+| `npm run seed:admin` | Create the first admin from `ADMIN_*` in `.env` |
+| `npm run build`      | Build all workspaces                            |
+| `npm run typecheck`  | Type-check all workspaces                       |
+| `npm run lint`       | Lint with oxlint (type-aware)                   |
+| `npm test`           | Unit tests (Vitest)                             |
+| `npm run test:e2e`   | End-to-end tests against an in-memory MongoDB   |
+| `npm run format`     | Format with Prettier (`format:check` to verify) |
