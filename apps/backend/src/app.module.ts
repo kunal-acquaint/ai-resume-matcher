@@ -6,6 +6,7 @@ import { AllExceptionsFilter } from './common/filters/all-exceptions.filter.js';
 import { type Env, validateEnv } from './config/env.schema.js';
 import { AuthModule } from './modules/auth/auth.module.js';
 import { HealthModule } from './modules/health/health.module.js';
+import { JobsModule } from './modules/jobs/jobs.module.js';
 import { UsersModule } from './modules/users/users.module.js';
 
 @Module({
@@ -25,6 +26,7 @@ import { UsersModule } from './modules/users/users.module.js';
     }),
     AuthModule,
     UsersModule,
+    JobsModule,
     HealthModule,
   ],
   providers: [

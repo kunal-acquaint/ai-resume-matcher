@@ -1,7 +1,8 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import type { HydratedDocument } from 'mongoose';
+import { COLLECTIONS } from '../../../common/collections.js';
 
-@Schema({ collection: 'users', timestamps: true })
+@Schema({ collection: COLLECTIONS.users, timestamps: true })
 export class User {
   @Prop({ type: String, required: true, trim: true, maxlength: 100 })
   name: string;

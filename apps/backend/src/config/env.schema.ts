@@ -43,6 +43,8 @@ export const envSchema = z
     ADMIN_PASSWORD: z.string().optional(),
 
     AI_PROVIDER: z.enum(['stub', 'local']).default('stub'),
+    /** Artificial delay of the stand-in LLM tasks, so "in progress" states are visible in the UI. */
+    AI_STUB_DELAY_MS: z.coerce.number().int().min(0).default(2000),
 
     OLLAMA_URL: z.url().default('http://localhost:11434'),
     OLLAMA_MODEL: z.string().min(1).default('llama3.2:3b'),

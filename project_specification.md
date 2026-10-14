@@ -15,7 +15,7 @@ In technical recruitment and software services, hiring managers and HR teams spe
 
 - A candidate writes "MERN Stack Engineer" instead of "React / Node Developer".
 - Resumes are stuffed with buzzwords without context.
-- Recruiters lack the technical depth to formulate tailored interview questions targeting an applicant's specific missing proficiencies.
+- Recruiters can't easily see which specific requirements a candidate meets and which are missing, or why a candidate ranked where they did.
 
 ### 1.2 The Solution
 
@@ -26,15 +26,17 @@ The **AI-Powered Resume Matcher** is an admin-only web platform where recruiters
 1. **Authentication:** email + password login. Only admins can access the platform.
 2. **Users:** admins add and remove other admins.
 3. **Jobs:** admins create, view, update, close and delete job openings. The AI extracts each job's required skills, which the admin can review.
-4. **Dashboard:** key numbers (active jobs, resumes received, pending analyses…) and a searchable table of every uploaded resume with its candidate, position and match score.
-5. **Resume Matcher:** select a job, enter the candidate's name, upload a PDF resume, and get a compatibility score and gap analysis. One resume is analyzed at a time.
+4. **Dashboard:** key numbers (active jobs, resumes received, average score…) and a searchable table of every uploaded resume with its candidate, position and match score.
+5. **Resume Matcher:** select a job, enter the candidate's name, upload a PDF resume, and get a compatibility score and skill gap breakdown within seconds.
 
 **AI engine** (detailed in §5):
 
 1. **Semantic Embeddings & Cosine Similarity:** compute conceptual alignment between a Job Description and a candidate's resume (meaning-based comparison, not literal string matching).
 2. **Skill Matching:** the job's required skills are checked against the resume by text and alias matching, with embedding similarity as a fallback. This is deterministic and explainable, and every matched skill shows its evidence.
-3. **Local Large Language Model (LLM):** extracts the required skills from each JD once, and writes 3–5 targeted interview questions plus a short fit summary for each candidate.
+3. **Local Large Language Model (LLM):** extracts the list of required skills (with alternative spellings) from each JD once, when the job is created; the admin can review and edit it.
 4. **Hybrid Match Score:** combines the semantic score with the skill-coverage ratio into a single 0–100% score, available immediately after upload.
+
+Resume processing involves no LLM call, so every resume is fully scored in about 1–2 seconds.
 
 The tool **assists** recruiters; it does not make hiring decisions (see §12).
 
@@ -62,7 +64,7 @@ All selected libraries, models, and tools are free and open-source. Models are d
 - **Framework:** React 19 (bundled with Vite)
 - **Language:** TypeScript
 - **Routing:** React Router (protected routes for logged-in admins)
-- **Server State:** TanStack Query (caching, polling for analysis status)
+- **Server State:** TanStack Query (caching, polling a job's skill extraction status)
 - **Forms:** React Hook Form + zod
 - **Styling:** Tailwind CSS v4 (modern, clean recruiter UI)
 - **Icons & UI Utilities:** Lucide React, Axios (REST calls), toast notifications
@@ -81,14 +83,14 @@ All selected libraries, models, and tools are free and open-source. Models are d
 - **Security Headers:** `helmet`
 - **Health Checks:** `@nestjs/terminus`
 - **Tooling:** Vitest (unit + e2e), oxlint (type-aware linting), Prettier
-- **Background LLM Tasks:** an in-process task runner (`p-queue`, concurrency 1) runs LLM work one task at a time, so no Redis dependency. **Only one resume analysis can be in progress at a time** (§4.6); JD skill extraction (§4.4) waits behind it if needed.
+- **Background LLM Tasks:** an in-process task runner (`p-queue`, concurrency 1) runs JD skill extraction (§4.4) in the background, one job at a time, so no Redis dependency. Resume processing is synchronous.
 - **Configuration:** `@nestjs/config` with a `.env` file
 
 ### 3.3 Database & Storage
 
 - **Database:** MongoDB 8 Community (native local install). MongoDB Atlas free tier is an optional alternative but breaks the "fully local" property.
 - **ODM:** Mongoose (`@nestjs/mongoose`)
-- **Stored Data:** admin users, jobs (JD text, embedding, required skills), candidates (name, extracted resume text, chunk embeddings, scores, skill match results, interview questions, processing status). See §6.
+- **Stored Data:** admin users, jobs (JD text, embedding, required skills), candidates (name, extracted resume text, chunk embeddings, scores, skill match results). See §6.
 
 ### 3.4 AI / ML Engine & Models
 
@@ -122,7 +124,7 @@ ai-resume-matcher/
 └── README.md
 ```
 
-- **`packages/shared`:** API types used by both apps (`User`, `Job`, `RequiredSkill`, `Candidate`, `CandidateStatus`, `SkillMatch`, `Paginated<T>`, `ApiErrorResponse`, request/response shapes), so a backend change that breaks the frontend shows up as a compile error. It is compiled with `tsc` to `dist/` (JS + `.d.ts`), built during `npm run setup`, and rebuilt in watch mode during `npm run dev`.
+- **`packages/shared`:** API types used by both apps (`User`, `Job`, `RequiredSkill`, `Candidate`, `SkillMatch`, `DashboardStats`, `Paginated<T>`, `ApiErrorResponse`, request/response shapes), so a backend change that breaks the frontend shows up as a compile error. It is compiled with `tsc` to `dist/` (JS + `.d.ts`), built during `npm run setup`, and rebuilt in watch mode during `npm run dev`.
 - **Root scripts:** `setup`, `dev`, `build`, `typecheck`, `lint`, `test`, `test:e2e`, `format`, `seed:admin`.
 - **Git conventions:** commits are scoped by area (e.g. `feat(backend): …`, `feat(frontend): …`, `chore(shared): …`), which keeps the history readable for the "Individual GitHub Contribution" criterion.
 
@@ -185,11 +187,13 @@ Jobs and candidates created by a removed admin are kept; the UI shows their crea
 | **Create**          | Title + description. The JD is embedded immediately, and **skill extraction** starts in the background (§5.4). The job shows "Extracting skills…" until it finishes (about 1 minute on the development machine).                       |
 | **Required skills** | Shown as editable tags on the job page. The admin can remove wrong skills, add missing ones, and edit aliases (e.g. "Node.js" also matches "NodeJS"). If extraction fails, the admin can retry it or enter the skills manually.         |
 | **View**            | Job details, required skills, its candidates ranked by score, and a "Match resume for this job" shortcut (opens the Resume Matcher with the job preselected).                                                                           |
-| **Update**          | Title and status can change freely. **Editing skills** re-runs skill matching and recomputes scores for the job's candidates (fast, no LLM). **Changing the description** re-embeds the JD, recomputes semantic scores and offers to re-extract skills. In both cases existing interview questions and summaries are flagged **outdated** and can be regenerated per candidate. |
+| **Update**          | Title and status can change freely. **Editing skills** re-runs skill matching and recomputes the scores of the job's candidates. **Changing the description** re-embeds the JD, recomputes the candidates' scores and offers to re-extract skills. Both recalculations use the stored resume vectors, so they finish immediately without any LLM call. |
 | **Close / reopen**  | Closed jobs disappear from the Resume Matcher's job list and reject new uploads (`409`), but keep their candidates for history. They still count in total resume statistics.                                                          |
 | **Delete**          | Confirmation dialog showing the number of candidates that will be deleted with it.                                                                                                                                                      |
 
 Resumes can only be matched against a job once its required skills are ready (extracted or entered manually).
+
+**Rules while extraction is running:** the description and skills cannot be edited and extraction cannot be restarted (`409`), so a late extraction result can never overwrite newer input; title and status can still change. A skill list must contain 1–30 skills. Extractions interrupted by a server restart are marked `failed` on startup.
 
 ### 4.5 Dashboard
 
@@ -201,13 +205,11 @@ Resumes can only be matched against a job once its required skills are ready (ex
 | Total resumes       | All uploaded resumes across all jobs                                       |
 | Resumes this week   | Uploaded in the last 7 days                                                |
 | Average match score | Mean final score across all candidates                                     |
-| Analysis in progress | The candidate whose interview questions are being generated, if any (at most one) |
 
 **Resume table** (below the cards):
 
-- **Columns:** candidate name, position (job title), match score (0–100% badge), skills matched (e.g. "12 / 15"), status, uploaded date, uploaded by, actions (view, delete).
-- **Filters & sorting:** filter by job and status, search by candidate name, sort by score or upload date (default: newest first), pagination (10 per page).
-- **Live updates:** while a visible row is still being analyzed, the table refreshes every 5 seconds.
+- **Columns:** candidate name, position (job title), match score (0–100% badge), skills matched (e.g. "12 / 15"), uploaded date, uploaded by, actions (view, delete).
+- **Filters & sorting:** filter by job, search by candidate name, sort by score or upload date (default: newest first), pagination (10 per page).
 - **"Match Resume" button** (prominent, top of the page) opens the Resume Matcher.
 
 ### 4.6 Resume Matcher
@@ -215,16 +217,14 @@ Resumes can only be matched against a job once its required skills are ready (ex
 1. Admin selects a job (dropdown of **active** jobs whose skills are ready, required).
 2. Enters the candidate's name (required) and email (optional).
 3. Drags and drops **one** PDF resume (≤ 5 MB).
-4. Submits. The backend extracts the text, checks for duplicates, computes the semantic score, skill match and final score, saves the candidate, and starts generating interview questions (§5.1).
-5. The admin is taken to the **Candidate Detail** page. The **score and matched/missing skills appear immediately**; the interview questions and summary appear when the LLM finishes (about 1.5–2 minutes on the development machine).
+4. Submits. The backend extracts the text, checks for duplicates, computes the semantic score, skill match and final score, and saves the candidate (§5.1), all within the request (about 1–2 seconds).
+5. The admin is taken to the **Candidate Detail** page with the complete result.
 
-**One analysis at a time:** while a resume's analysis is in progress, the Resume Matcher shows "Analysis in progress for _&lt;candidate&gt;_" with a link to it, and the upload button is disabled. The rule is **global** (across all admins) because the LLM uses the whole CPU. If two uploads race, the second is rejected with `409` "Another resume is being analyzed. Please wait until it finishes."
-
-Errors are shown as toasts, e.g. "Resume already uploaded" (duplicate for this job), "No text layer found" (scanned PDF), "Only PDF files are allowed", "Another resume is being analyzed".
+Errors are shown as toasts, e.g. "Resume already uploaded" (duplicate for this job), "No text layer found" (scanned PDF), "Only PDF files are allowed".
 
 ### 4.7 Candidate Detail
 
-Candidate name and email, job, upload info, final score with breakdown (semantic score, skill coverage), **matched skills with their evidence** (found in text, matched via alias, or semantically similar to a resume passage, which is shown), missing skills, generated interview questions, short summary, and status. Actions: **Regenerate questions** (after a failure or when flagged outdated, subject to the one-at-a-time rule) and **Delete**.
+Candidate name and email, job, upload info, final score with breakdown (semantic score, skill coverage), **matched skills with their evidence** (found in text, matched via alias, or semantically similar to a resume passage, which is shown) and missing skills. Action: **Delete**.
 
 ---
 
@@ -242,26 +242,22 @@ Candidate name and email, job, upload info, final score with breakdown (semantic
 
  PER RESUME   POST /api/jobs/:jobId/candidates (multipart: file, candidateName, candidateEmail)
  ──────────────────────────────────────────────────────────────────────────────
-  SYNCHRONOUS (returns in ~1-2 s)
+  SYNCHRONOUS, no LLM (returns in ~1-2 s)
   4. Reject if job closed or skills not ready (409)
-  5. Reject if another analysis is in progress (409)
-  6. PdfService: extract text with unpdf; reject if < 200 chars (scanned PDF)
+  5. PdfService: extract text with unpdf; reject if < 200 chars (scanned PDF)
      - Hash normalized text; if already uploaded to this job -> 409
-  7. ResumeScorer: chunk resume (<= ~200 tokens), embed chunks,
+  6. DocumentEmbedder: chunk resume (<= ~200 tokens), embed chunks,
      semanticRaw = mean of top-3 chunk similarities vs JD vector,
      semanticScore = calibrated rescale to 0..1                    (§5.2, §5.3)
-  8. SkillMatcher: each required skill -> matched (text / alias / semantic)
+  7. SkillMatcher: each required skill -> matched (text / alias / semantic)
      or missing; coverage = matched / total                        (§5.5)
-  9. finalScore = weighted semanticScore + coverage
- 10. Save Candidate { status: "pending", scores, skillMatch }; respond 201
+  8. finalScore = weighted semanticScore + coverage
+  9. Save Candidate { scores, skillMatch, chunk embeddings }; respond 201
 
-  ASYNCHRONOUS (background, one at a time, ~1.5-2 min on the dev machine)
- 11. InsightGenerator (Ollama, streamed, JSON schema): given the JD, resume and
-     the computed matched/missing skills -> 3-5 interview questions + summary
- 12. Validate with zod (1 retry); status -> "analyzed"
-     (on failure: status -> "failed"; score and skill match are unaffected)
-
-  Candidate Detail polls GET /api/candidates/:id every ~3 s until analyzed/failed.
+ PER JOB UPDATE (description or skills changed)
+ ──────────────────────────────────────────────────────────────────────────────
+ 10. Recompute every candidate of the job from the stored chunk embeddings
+     (dot products + skill matching only; no re-embedding, no LLM)
 ```
 
 ### 5.2 Why Chunking Is Required
@@ -285,23 +281,21 @@ coverage      = matchedSkills / totalRequiredSkills
 finalScore    = 0.6 * semanticScore + 0.4 * coverage
 ```
 
-- Both parts are computed **synchronously at upload**, so the score is final immediately; it does not change when the LLM finishes.
+- Both parts are computed **synchronously at upload**, so the score is final immediately. It only changes if the admin edits the job's description or skills, which recalculates all of that job's candidates.
 - In the test run, raw top-3 similarities ranged from 0.28 (data analyst) to 0.73 (senior full-stack). The defaults are therefore `SIM_FLOOR=0.25` / `SIM_CEILING=0.80`, to be **calibrated** against the full synthetic dataset (§9) in milestone 11. Both live in `.env`.
 - Weights (`0.6` / `0.4`) are configurable. The rationale: semantic similarity captures overall domain fit, while coverage captures explicit requirement fulfilment.
 
-### 5.4 LLM Tasks & Output Contracts
+### 5.4 LLM Task: Required Skill Extraction
 
-The LLM is used for two tasks only. Both use Ollama structured output (JSON schema in `format`), `temperature 0.2`, `num_ctx 8192`, a `num_predict` output cap, streaming, and `zod` validation with one retry.
+The LLM has exactly one task: extracting a job's required skills from its description, once per job (on creation or when the admin requests re-extraction). It runs in the background (§4.4) and takes about a minute on the development machine. It uses Ollama structured output (JSON schema in `format`), `temperature 0.2`, `num_ctx 8192`, `num_predict 512`, streaming, and `zod` validation with one retry.
 
-**Common prompt rules:**
+**Prompt rules:**
 
-- Input documents are wrapped in explicit delimiters (`<<<RESUME>>> … <<<END RESUME>>>`), and the system prompt says to treat everything between delimiters strictly as data and ignore instructions inside it.
-- Input text is capped (12,000 characters per document) so the prompt fits within `num_ctx`.
-- The candidate name typed by the admin is **not** sent to the LLM (reduces bias, see §12).
+- The JD is wrapped in explicit delimiters (`<<<JOB DESCRIPTION>>> … <<<END JOB DESCRIPTION>>>`), and the system prompt says to treat everything between them strictly as data and ignore instructions inside it.
+- Input text is capped at 12,000 characters so the prompt fits within `num_ctx`.
+- Resumes are never sent to the LLM.
 
-**Task 1: Required skill extraction** (once per job, `num_predict 512`)
-
-Input: the JD. Output:
+**Output schema:**
 
 ```json
 {
@@ -326,27 +320,7 @@ Input: the JD. Output:
 
 Skills are de-duplicated (case-insensitive) and merged with aliases from the built-in skill dictionary (§5.5). The admin reviews the result on the job page.
 
-**Task 2: Interview questions & summary** (per resume, `num_predict 512`)
-
-Input: the JD, the resume, and the **already computed** matched and missing skills. The model is told to target the missing and weakest skills, and it no longer decides what is matched. Output:
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "interviewQuestions": {
-      "type": "array",
-      "items": { "type": "string" },
-      "minItems": 3,
-      "maxItems": 5
-    },
-    "summary": { "type": "string" }
-  },
-  "required": ["interviewQuestions", "summary"]
-}
-```
-
-**Why the LLM does not decide matched/missing skills:** in the AI test run, `llama3.2:3b` listed four skills as missing that the strong resume stated explicitly, and listed ten JD skills as matched for an out-of-domain data analyst whose resume contained none of them. Its summaries and questions were reasonable. The design therefore uses the LLM where it was reliable and deterministic matching where it was not.
+**Why the LLM does not compare resumes:** in the AI test run, `llama3.2:3b` listed four skills as missing that the strong resume stated explicitly, and listed ten JD skills as matched for an out-of-domain data analyst whose resume contained none of them. A full per-resume analysis also took 2.5–3 minutes on the development machine. The design therefore uses the LLM only for the one task where a human reviews its output (the job's skill list), and compares resumes with deterministic matching and embeddings, which are fast and explainable.
 
 ### 5.5 Skill Matching
 
@@ -366,13 +340,14 @@ The platform features are built **before** the real AI (§15). To make that poss
 
 | Interface          | Responsibility                                          | Stand-in (`AI_PROVIDER=stub`)                                              | Real (`AI_PROVIDER=local`)        |
 | :----------------- | :------------------------------------------------------ | :------------------------------------------------------------------------- | :-------------------------------- |
-| `ResumeScorer`     | Embed JDs, resume chunks and skills; semantic score     | Keyword-overlap score between JD and resume (stop words removed)            | MiniLM embeddings + chunking      |
-| `SkillExtractor`   | Required skills + aliases from a JD (§5.4 task 1)       | Dictionary skills whose name or alias appears in the JD                     | Ollama with structured output     |
-| `InsightGenerator` | Interview questions + summary (§5.4 task 2)             | Waits ~3 s, then returns template questions about the missing skills        | Ollama with structured output     |
+| `TextEmbedder`     | Turn text into normalized 384-d vectors; count tokens   | Hashing embedder: hashed bag-of-words vector, so similarity = keyword overlap | MiniLM (`Xenova/all-MiniLM-L6-v2`) |
+| `SkillExtractor`   | Required skills + aliases from a JD (§5.4)              | Dictionary skills whose name or alias appears in the JD                     | Ollama with structured output     |
 
-- `SkillMatcher` (§5.5) is plain code, not an AI interface. Its semantic step uses `ResumeScorer` embeddings and is skipped with the stand-ins.
+- **Chunking, averaging and scoring are plain code** (`DocumentEmbedder`, §5.2–5.3) shared by both embedders; only the vectors differ. Switching to MiniLM replaces the `TextEmbedder` and nothing else.
+- `SkillMatcher` (§5.5) is plain code, not an AI interface. Its semantic step works with either embedder (with the stand-in it only matches shared words).
+- The stand-in extractor waits `AI_STUB_DELAY_MS` (default 2 s, 0 in tests) so the UI's "extracting skills" state is visible.
 - Controllers, services, the task runner, the database and the frontend depend only on the interfaces, so switching to the real AI does not change them.
-- The stand-ins produce realistic behaviour (extracting skills → ready, pending → analyzed, plausible scores) for building and demoing the UI before the models are integrated.
+- The stand-ins produce realistic behaviour (extracting skills → ready, plausible scores) for building and demoing the UI before the models are integrated.
 - Tests use the stand-ins, so the test suite never needs the models or Ollama.
 
 ---
@@ -435,23 +410,16 @@ Candidate {
   }
   coverage: number             // 0..1
   finalScore: number           // 0..1
-  insights?: {
-    interviewQuestions: string[]
-    summary: string
-    model: string              // e.g. "llama3.2:3b" or "stub"
-  }
-  insightsOutdated: boolean    // true after the job description or skills change
-  status: "pending" | "analyzing" | "analyzed" | "failed"   // refers to insights
-  error?: string
   uploadedBy: ObjectId         // ref: User
   createdAt: Date
+  updatedAt: Date              // changes when scores are recomputed after a job edit
 }
-// indexes: unique { jobId: 1, contentHash: 1 }; { createdAt: -1 }; { jobId: 1, finalScore: -1 }; { status: 1 }
+// indexes: unique { jobId: 1, contentHash: 1 }; { createdAt: -1 }; { jobId: 1, finalScore: -1 }
 ```
 
 **Duplicate detection:** the extracted text is normalized (lowercased, whitespace collapsed) and hashed with SHA-256. Hashing the text instead of the raw file bytes also catches the same resume re-saved or re-exported as a new PDF. Duplicates are checked **per job**: the same resume can be uploaded to different jobs, and once a candidate is deleted, their resume can be uploaded to that job again.
 
-**One analysis at a time:** before accepting an upload or a regenerate request, the API checks whether any candidate has status `pending` or `analyzing`. On startup, candidates left in those states by a crash or restart are marked `failed`, so the lock can never get stuck.
+**Why chunk embeddings are stored:** they let the API recompute every candidate's semantic score and semantic skill matches when the job changes, without re-reading or re-embedding the resumes.
 
 **Pagination:** list endpoints return `Paginated<T> = { items: T[]; total: number; page: number; limit: number }`.
 
@@ -495,10 +463,8 @@ All routes are under `/api` and require authentication unless marked **public**.
 | Method   | Route                                   | Description                                                                                            |
 | :------- | :-------------------------------------- | :----------------------------------------------------------------------------------------------------- |
 | `POST`   | `/api/jobs/:jobId/candidates`           | Multipart: `file` (exactly one PDF, ≤ 5 MB), `candidateName`, `candidateEmail?`.                       |
-| `GET`    | `/api/candidates`                       | `?jobId=&status=&search=&sort=score\|date&page=&limit=` → paginated list (dashboard table, job view).  |
-| `GET`    | `/api/candidates/active`                | The candidate currently being analyzed, or `null` (drives the Resume Matcher's "in progress" state).   |
-| `GET`    | `/api/candidates/:id`                   | Full candidate detail including skill match and insights.                                              |
-| `POST`   | `/api/candidates/:id/regenerate`        | Regenerate interview questions + summary (after a failure or when outdated).                           |
+| `GET`    | `/api/candidates`                       | `?jobId=&search=&sort=score\|date&page=&limit=` → paginated list (dashboard table, job view).          |
+| `GET`    | `/api/candidates/:id`                   | Full candidate detail including the skill match and its evidence.                                      |
 | `DELETE` | `/api/candidates/:id`                   | Remove a candidate.                                                                                    |
 
 **Dashboard & Health**
@@ -516,10 +482,9 @@ All routes are under `/api` and require authentication unless marked **public**.
 - Missing file, more than one file, non-PDF, or oversized file → `400` with a descriptive error.
 - No extractable text (scanned PDF) → `422`: "No text layer found; OCR is not supported."
 - Same resume already uploaded to this job → `409 Conflict`: "Resume already uploaded." The frontend shows this as an error toast; nothing is saved.
-- Another resume analysis in progress → `409` "Another resume is being analyzed. Please wait until it finishes."
 - Upload to a closed job → `409` "This job is closed". Job skills not ready → `409` "Required skills for this job are not ready yet".
 - Unknown job / candidate / user id → `404`.
-- Ollama unreachable / timeout (`OLLAMA_TIMEOUT_MS`, default 600 s) → candidate `status: "failed"` (score and skill match unaffected) or job `skillsStatus: "failed"`; the UI offers a retry.
+- Ollama unreachable / timeout during skill extraction (`OLLAMA_TIMEOUT_MS`, default 600 s) → job `skillsStatus: "failed"`; the UI offers a retry or manual entry. Resume uploads never depend on Ollama.
 - CORS allows the frontend origin with credentials (in development the Vite dev server proxies `/api`, so requests are same-origin).
 
 ---
@@ -554,7 +519,7 @@ $$\text{Similarity}(A, B) = \cos(\theta) = \frac{\sum_{i=1}^{n} A_i B_i}{\sqrt{\
 
 - **Embeddings** (fast, ~0.1–0.4 s per resume): overall domain fit and semantic skill matching.
 - **Deterministic rules** (instant, explainable): which required skills a resume shows.
-- **LLM** (slow, ~1.5–2 min per resume on the development machine): language tasks it does well, namely turning a JD into a skill list (reviewed by a human) and writing interview questions and summaries.
+- **LLM** (slow, about a minute per job on the development machine): turning a free-text JD into a structured skill list, which a human then reviews. It runs once per job, never per resume.
 - Each technique is used where it was measured to be reliable (§15, M2), and the score never depends on the slowest or least reliable component.
 
 ### 8.5 Reliability & Safety of LLM Output
@@ -562,7 +527,7 @@ $$\text{Similarity}(A, B) = \cos(\theta) = \frac{\sum_{i=1}^{n} A_i B_i}{\sqrt{\
 - **Structured outputs:** a JSON schema constrains the model's output format; `zod` validation + one retry handles residual failures. Without a schema, the test model generated over 1,000 tokens for a three-item answer.
 - **No LLM-decided scores:** matched/missing skills and the score are computed deterministically, so LLM errors cannot change a candidate's ranking.
 - **Human review:** extracted job skills are visible and editable before and after matching.
-- **Prompt injection:** resumes are untrusted input (e.g., hidden white text saying "rate this candidate 100%"). Mitigated by delimiters, a data-only system instruction, and the fact that the LLM has no influence on the score.
+- **Prompt injection:** resumes are never sent to the LLM, so hidden text in a resume (e.g. "rate this candidate 100%") cannot influence it. Job descriptions are wrapped in delimiters with a data-only system instruction.
 
 ---
 
@@ -584,7 +549,7 @@ To comply with data privacy and company review guidelines:
 | D   | Data Analyst        | Excel, SQL, Power BI (demonstrates correct out-of-domain rejection) | Low           |
 
 - **Calibration step:** run all 6 against the JD, record `semanticRaw` values and skill-match results, then set `SIM_FLOOR` / `SIM_CEILING` / `SKILL_MATCH_THRESHOLD` so the tiers separate clearly. The final percentage ranges shown in the demo are taken from these measured results, not set in advance.
-- **Demo preparation:** analyze the dataset resumes before presenting; six analyses take roughly 10–15 minutes on the development machine.
+- **Demo preparation:** create the demo jobs before presenting so their skills are already extracted; uploading the six resumes then takes seconds.
 - **Caveat for the defense:** the synthetic resumes were written with the JD in mind, so they are cleaner than real resumes. Results on them demonstrate the approach, not real-world accuracy.
 
 ---
@@ -598,7 +563,7 @@ To comply with data privacy and company review guidelines:
 - **RAM:** 16 GB. `llama3.2:3b` uses about 2.4 GB while loaded, which leaves room for MongoDB, Node.js, the embedding model, the browser and an IDE.
 - **CPU:** any x64 CPU; no GPU required. Measured on the development machine (Intel i5-2400, 4 cores, 2011, no AVX2) in the AI test run:
   - Embeddings: model load ~8 s at startup, then 0.1–0.4 s per resume.
-  - `llama3.2:3b`: reads prompts at ~14–30 tokens/s and generates ~2.6–2.8 tokens/s, so a full skill-gap analysis took **2.5–3 minutes**. The leaner insights-only task (§5.4) is expected to take about 1.5–2 minutes.
+  - `llama3.2:3b`: reads prompts at ~14–30 tokens/s and generates ~2.6–2.8 tokens/s. Skill extraction (§5.4) reads only the JD and returns a short list, so it is expected to take about a minute per job. Resume uploads do not use the LLM.
   - Newer CPUs (with AVX2) are several times faster.
 - **Disk:** about 5 GB free (Ollama model ≈ 2 GB, embedding model, `node_modules`, MongoDB data).
 - **OS:** developed and tested on Windows 10; macOS and Linux should work but are untested.
@@ -632,6 +597,7 @@ ADMIN_PASSWORD=change-me-now
 
 # AI: "stub" (stand-ins, no models needed) or "local" (MiniLM + Ollama)
 AI_PROVIDER=stub
+AI_STUB_DELAY_MS=2000   # simulated LLM time for the stand-ins
 OLLAMA_URL=http://localhost:11434
 OLLAMA_MODEL=llama3.2:3b
 OLLAMA_NUM_CTX=8192
@@ -686,27 +652,27 @@ When switching to the real AI (`AI_PROVIDER=local`), also run `ollama pull llama
   - Score calculation: rescaling clamp, hybrid weighting.
   - Skill matcher: exact, alias and word-bounded matching ("Java" ≠ "JavaScript", "Node.js" = "NodeJS"); semantic threshold; evidence recorded.
   - LLM output validation: valid JSON, malformed JSON (retry path); skill de-duplication and dictionary merge.
-  - Password hashing and verification; stand-in scorer, extractor and insight generator.
+  - Password hashing and verification; stand-in embedder and extractor.
 - **Integration / e2e tests** (Supertest + in-memory MongoDB, `AI_PROVIDER=stub`):
   - **Auth:** protected routes return `401` without a session; login sets the cookie; wrong password → `401`; 6th login attempt within a minute → `429`; changing or resetting a password revokes existing sessions; a removed admin is signed out immediately.
   - **Users:** add admin; duplicate email → `409`; removing yourself → `400`.
   - **Jobs:** CRUD; skill extraction lifecycle (`extracting` → `ready`, failure → `failed` + retry); editing skills recomputes candidate scores; uploads to a closed job or a job without ready skills → `409`; deleting a job deletes its candidates.
-  - **Candidates:** upload returns the final score and skill match immediately; insights lifecycle pending → analyzed; failure → `failed` with score unaffected; **second upload while one is in progress → `409`**; stuck `pending`/`analyzing` candidates are marked `failed` on startup; duplicate upload to the same job → `409` (allowed for a different job or after deletion); list filters, search, sorting and pagination.
+  - **Candidates:** upload returns the final score and skill match with evidence; scanned or non-PDF files are rejected; duplicate upload to the same job → `409` (allowed for a different job or after deletion); editing a job's skills or description recomputes its candidates' scores; list filters, search, sorting and pagination.
   - **Dashboard:** stats match the seeded data.
-- **End-to-end smoke test:** log in, create a job, wait for skills, upload one sample PDF from `/dataset`, and see it analyzed.
+- **End-to-end smoke test:** log in, create a job, wait for skills, upload one sample PDF from `/dataset`, and see its score and skill breakdown.
 - **Manual demo checklist:** all 6 dataset resumes rank in the expected tier order with `AI_PROVIDER=local`.
 
 ---
 
 ## 12. Limitations & Ethical Considerations
 
-- **Decision support only:** scores and questions assist a human recruiter; the tool must not auto-reject candidates.
-- **Bias:** LLMs and embedding models can reflect biases in their training data. The candidate's name is not sent to the LLM, the prompt instructs the model to ignore gender, age, and other non-skill attributes, the LLM does not influence the score, and the UI shows the evidence behind every matched skill.
-- **Throughput:** one analysis at a time, about 1.5–2 minutes each on the development machine. Suitable for a recruiter reviewing candidates one by one, not for bulk screening.
+- **Decision support only:** scores assist a human recruiter; the tool must not auto-reject candidates.
+- **Bias:** embedding models and LLMs can reflect biases in their training data. Resumes (and therefore candidate names) are never sent to the LLM, the score depends only on skill evidence and semantic similarity, and the UI shows the evidence behind every matched skill.
+- **No interview guidance:** the tool shows which skills are missing but does not suggest interview questions (removed from scope, §13).
 - **Skill matching limits:** text and alias matching cannot judge depth of experience (a skill mentioned once counts the same as years of use); the semantic step can occasionally match related but different skills. Evidence is shown so the admin can judge.
 - **Language:** English-only (the embedding model is English-trained).
 - **PDF layouts:** complex multi-column layouts may extract out of order.
-- **Small LLM quality:** a 3B model may phrase questions generically; larger models can be swapped in via configuration on faster machines.
+- **Small LLM quality:** a 3B model may miss or invent a skill when reading a JD; the admin reviews the list, and larger models can be swapped in via configuration on faster machines.
 - **Data:** only synthetic data is used; no real candidate PII is stored.
 
 ---
@@ -723,7 +689,8 @@ When switching to the real AI (`AI_PROVIDER=local`), also run `ollama pull llama
 | Multi-tenant use                   | Not included. One organisation per installation.                                        |
 | DOCX or other resume formats       | Not supported. **PDF only**; other file types are rejected with `400`.                  |
 | OCR for scanned PDFs               | Not supported in v1; scanned PDFs are rejected with `422`. Possible future enhancement. |
-| Bulk upload / parallel analyses    | Not supported. One resume per upload, one analysis at a time.                           |
+| Bulk upload                        | Not supported. One resume per upload.                                                   |
+| Interview questions / AI summaries | Removed from scope. Each candidate gets a score and a matched/missing skill breakdown.  |
 | Cloud deployment / hosting         | Not included. Runs locally only.                                                        |
 | Docker / containers                | Not used. MongoDB and Ollama are installed natively; the apps run with npm scripts.     |
 
@@ -737,8 +704,8 @@ Route-level overview; detailed layouts are still under discussion.
 | :---------------------------- | :--------------- | :------------------------------------------------------------------------------------------------------------- |
 | `/login`                      | Login            | Email + password form. The only page available without a session.                                              |
 | `/`                           | Dashboard        | Summary cards, resume table, **Match Resume** button (§4.5).                                                   |
-| `/match`                      | Resume Matcher   | Job dropdown, candidate name/email, PDF drop zone, "analysis in progress" state (§4.6). Accepts `?jobId=`.     |
-| `/candidates/:id`             | Candidate Detail | Score, breakdown, matched skills with evidence, missing skills, interview questions, regenerate/delete (§4.7). |
+| `/match`                      | Resume Matcher   | Job dropdown, candidate name/email, PDF drop zone (§4.6). Accepts `?jobId=`.                                   |
+| `/candidates/:id`             | Candidate Detail | Score, breakdown, matched skills with evidence, missing skills, delete (§4.7).                                 |
 | `/jobs`                       | Jobs             | Job list with filters; create button.                                                                          |
 | `/jobs/new`, `/jobs/:id/edit` | Job Form         | Title, description, status.                                                                                    |
 | `/jobs/:id`                   | Job Detail       | Job info, editable required skills, its ranked candidates, "Match resume for this job".                        |
@@ -758,16 +725,16 @@ Platform features are built first using the AI stand-ins (§5.6); the real AI is
 | 1   | Monorepo + backend boilerplate (config validation, error format, health, Swagger, tests)                           | 6          | Done   |
 | 2   | AI test run: embedding score separation and LLM speed/quality on the development machine                           | 3          | Done   |
 | 3   | Backend: Auth (login, cookie JWT, global guard, rate limit, seed) + Users module                                     | 8          | Done   |
-| 4   | Backend: Jobs module (incl. required skills, extraction lifecycle with stand-in)                                    | 5          |        |
-| 5   | Backend: Candidates (upload, PDF extraction, duplicates, skill matcher, one-at-a-time insights, stand-ins) + dashboard API | 10   |        |
+| 4   | Backend: Jobs module (incl. required skills, extraction lifecycle with stand-in)                                    | 5          | Done   |
+| 5   | Backend: Candidates (upload, PDF extraction, duplicates, skill matcher, scoring, recompute on job edits) + dashboard API | 9      |        |
 | 6   | Frontend foundation: Vite, Tailwind, routing, API client, login, protected layout, toasts                            | 6          |        |
 | 7   | Frontend: Jobs (incl. skill tags) and Users pages, profile / change password                                         | 6          |        |
 | 8   | Frontend: Dashboard, Resume Matcher, Candidate Detail                                                                | 9          |        |
 | 9   | Real AI: embeddings, chunking, semantic scoring and semantic skill matching                                         | 8          |        |
-| 10  | Real AI: Ollama client (streaming), skill extraction, interview questions + summary                                 | 8          |        |
+| 10  | Real AI: Ollama client (streaming, structured output) for skill extraction                                          | 5          |        |
 | 11  | Synthetic dataset (PDFs) and calibration of score and skill-match thresholds                                        | 4          |        |
 | 12  | README, final testing, performance measurements, defense prep                                                        | 5          |        |
-|     | **Buffer**                                                                                                         | 2          |        |
+|     | **Buffer**                                                                                                         | 6          |        |
 |     | **Total**                                                                                                          | **80**     |        |
 
 Tests are written alongside each milestone, not in a separate phase.
@@ -775,4 +742,6 @@ Tests are written alongside each milestone, not in a separate phase.
 **Milestone 2 findings** (measured with throwaway scripts that are no longer in the repository):
 
 - MiniLM with ~200-token chunks ranked the six synthetic resumes exactly in the expected order, with a wide score spread (0.28–0.73 raw).
-- `llama3.2:3b` always produced valid JSON with a schema, but its matched/missing skill lists were unreliable, and one analysis took 2.5–3 minutes. This led to the deterministic skill matching design (§5.5) and the one-analysis-at-a-time rule (§4.6).
+- `llama3.2:3b` always produced valid JSON with a schema, but its matched/missing skill lists were unreliable, and one analysis took 2.5–3 minutes. This led to the deterministic skill matching design (§5.5) and to using the LLM only for JD skill extraction (§5.4).
+
+**Scope change (after milestone 4):** per-resume interview questions and summaries were removed. Resume processing became fully synchronous; the freed time (4 h from milestones 5 and 10) went to the buffer.
