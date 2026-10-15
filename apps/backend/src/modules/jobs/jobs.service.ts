@@ -6,15 +6,24 @@ import {
   NotFoundException,
   type OnApplicationBootstrap,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
-import type { Job as JobResponse, Paginated, RequiredSkillInput } from '@resume-matcher/shared';
+import type {
+  Job as JobResponse,
+  JobStatus,
+  Paginated,
+  RequiredSkillInput,
+  SkillsStatus,
+} from '@resume-matcher/shared';
 import { type Connection, Model, type QueryFilter, Types } from 'mongoose';
 import { COLLECTIONS } from '../../common/collections.js';
+import { escapeRegExp } from '../../common/utils/escape-regexp.js';
 import { DocumentEmbedder } from '../ai/embeddings/document-embedder.service.js';
 import { LlmTaskQueue } from '../ai/llm-task-queue.service.js';
 import { normalizeSkills } from '../ai/skills/normalize-skills.js';
 import { SKILL_EXTRACTOR, type SkillExtractor } from '../ai/skills/skill-extractor.js';
 import type { CreateJobDto, ListJobsQueryDto, UpdateJobDto } from './dto/job-request.dto.js';
+import { JOB_EVENTS, type JobEventPayload } from './jobs.events.js';
 import { toJobResponse } from './jobs.mapper.js';
 import {
   Job,
@@ -26,8 +35,13 @@ import {
 const EXTRACTION_IN_PROGRESS =
   'Required skills are still being extracted for this job. Try again when extraction finishes.';
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/** A job with the embeddings needed to score resumes against it. */
+export interface MatchableJob {
+  id: string;
+  status: JobStatus;
+  skillsStatus: SkillsStatus;
+  embedding: number[];
+  requiredSkills: RequiredSkillEntry[];
 }
 
 @Injectable()
@@ -40,6 +54,7 @@ export class JobsService implements OnApplicationBootstrap {
     private readonly embedder: DocumentEmbedder,
     @Inject(SKILL_EXTRACTOR) private readonly skillExtractor: SkillExtractor,
     private readonly llmTasks: LlmTaskQueue,
+    private readonly events: EventEmitter2,
   ) {}
 
   /** Extractions interrupted by a restart can never finish; mark them failed so they can be retried. */
@@ -91,11 +106,40 @@ export class JobsService implements OnApplicationBootstrap {
     return toJobResponse(job, counts.get(job.id) ?? 0);
   }
 
+  /**
+   * Loads a job with its embeddings for scoring. If they were produced by a
+   * different embedding model (e.g. after switching AI_PROVIDER), they are
+   * recomputed first, because vectors from different models are not comparable.
+   */
+  async findForMatching(id: string): Promise<MatchableJob> {
+    const job = await this.findDocument(id);
+    if (job.embeddingModel !== this.embedder.model) {
+      job.embedding = await this.embedder.embedDocument(job.description);
+      const embeddings = await this.embedder.embedTexts(job.requiredSkills.map((s) => s.name));
+      job.requiredSkills = job.requiredSkills.map((skill, i) => ({
+        name: skill.name,
+        aliases: [...skill.aliases],
+        source: skill.source,
+        embedding: embeddings[i] ?? [],
+      }));
+      job.embeddingModel = this.embedder.model;
+      await job.save();
+    }
+    return {
+      id: job.id,
+      status: job.status,
+      skillsStatus: job.skillsStatus,
+      embedding: job.embedding,
+      requiredSkills: job.requiredSkills,
+    };
+  }
+
   async create(dto: CreateJobDto, createdBy: string): Promise<JobResponse> {
     const job = await this.jobModel.create({
       title: dto.title,
       description: dto.description,
       embedding: await this.embedder.embedDocument(dto.description),
+      embeddingModel: this.embedder.model,
       skillsStatus: 'extracting',
       createdBy: new Types.ObjectId(createdBy),
     });
@@ -111,18 +155,24 @@ export class JobsService implements OnApplicationBootstrap {
       throw new ConflictException(EXTRACTION_IN_PROGRESS);
     }
 
+    let matchingInputsChanged = false;
     if (dto.title !== undefined) job.title = dto.title;
     if (dto.status !== undefined) job.status = dto.status;
     if (dto.description !== undefined && dto.description !== job.description) {
       job.description = dto.description;
       job.embedding = await this.embedder.embedDocument(dto.description);
+      matchingInputsChanged = true;
     }
     if (dto.requiredSkills !== undefined) {
       job.requiredSkills = await this.buildSkillEntries(dto.requiredSkills, job.requiredSkills);
       job.skillsStatus = 'ready';
+      matchingInputsChanged = true;
     }
 
     await job.save();
+    if (matchingInputsChanged) {
+      await this.publish(JOB_EVENTS.matchingInputsChanged, id);
+    }
     return this.findOne(id);
   }
 
@@ -147,7 +197,7 @@ export class JobsService implements OnApplicationBootstrap {
     if (!job) {
       throw new NotFoundException('Job not found');
     }
-    await this.connection.collection(COLLECTIONS.candidates).deleteMany({ jobId: job._id });
+    await this.publish(JOB_EVENTS.deleted, id);
   }
 
   private async findDocument(id: string): Promise<JobDocument> {
@@ -156,6 +206,12 @@ export class JobsService implements OnApplicationBootstrap {
       throw new NotFoundException('Job not found');
     }
     return job;
+  }
+
+  /** Publishes a job event and waits for all listeners (e.g. candidate rescoring) to finish. */
+  private async publish(event: string, jobId: string): Promise<void> {
+    const payload: JobEventPayload = { jobId };
+    await this.events.emitAsync(event, payload);
   }
 
   private queueSkillExtraction(jobId: string): void {
@@ -171,6 +227,7 @@ export class JobsService implements OnApplicationBootstrap {
       return;
     }
 
+    let saved = false;
     try {
       const extracted = await this.skillExtractor.extract(job.description);
       const skills = normalizeSkills(extracted, { enrichFromDictionary: true });
@@ -184,17 +241,23 @@ export class JobsService implements OnApplicationBootstrap {
         source: 'ai',
       }));
 
-      await this.jobModel
+      const result = await this.jobModel
         .updateOne(
           { _id: jobId, skillsStatus: 'extracting' },
           { $set: { requiredSkills, skillsStatus: 'ready' } },
         )
         .exec();
+      saved = result.modifiedCount === 1;
     } catch (error) {
       await this.jobModel
         .updateOne({ _id: jobId, skillsStatus: 'extracting' }, { $set: { skillsStatus: 'failed' } })
         .exec();
       throw error;
+    }
+
+    // Re-extraction on a job that already has candidates changes their scores.
+    if (saved) {
+      await this.publish(JOB_EVENTS.matchingInputsChanged, jobId);
     }
   }
 

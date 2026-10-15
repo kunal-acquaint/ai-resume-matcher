@@ -6,7 +6,7 @@ import {
   type JobStatus,
   type SkillsStatus,
 } from '@resume-matcher/shared';
-import { type HydratedDocument, Types } from 'mongoose';
+import { type HydratedDocument, Schema as MongooseSchema, type Types } from 'mongoose';
 import { COLLECTIONS } from '../../../common/collections.js';
 import { User } from '../../users/schemas/user.schema.js';
 
@@ -43,13 +43,17 @@ export class Job {
   @Prop({ type: [Number], required: true })
   embedding: number[];
 
+  /** Model that produced `embedding` and the skill embeddings; a mismatch triggers re-embedding. */
+  @Prop({ type: String, default: null })
+  embeddingModel: string | null;
+
   @Prop({ type: [RequiredSkillEntrySchema], default: [] })
   requiredSkills: RequiredSkillEntry[];
 
   @Prop({ type: String, enum: SKILLS_STATUSES, required: true })
   skillsStatus: SkillsStatus;
 
-  @Prop({ type: Types.ObjectId, ref: User.name, default: null })
+  @Prop({ type: MongooseSchema.Types.ObjectId, ref: User.name, default: null })
   createdBy: Types.ObjectId | null;
 
   createdAt: Date;

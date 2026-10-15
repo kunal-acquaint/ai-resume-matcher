@@ -13,7 +13,7 @@
   },
   "overrides": [
     {
-      "files": ["**/*.spec.ts", "**/*.e2e-spec.ts"],
+      "files": ["**/*.spec.ts", "**/*.e2e-spec.ts", "test/utils/**"],
       "rules": {
         "typescript/no-unsafe-type-assertion": "off"
       }

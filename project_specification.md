@@ -374,6 +374,7 @@ Job {
   description: string
   status: "active" | "closed"  // indexed
   embedding: number[]          // 384-d, normalized
+  embeddingModel: string       // model that produced the embeddings (see below)
   requiredSkills: {
     name: string
     aliases: string[]
@@ -396,6 +397,7 @@ Candidate {
   text: string                 // extracted resume text
   contentHash: string          // SHA-256 of normalized text (duplicate detection)
   chunks: { text: string; embedding: number[]; similarity: number }[]
+  embeddingModel: string       // model that produced the chunk embeddings
   semanticRaw: number          // -1..1
   semanticScore: number        // 0..1 (calibrated)
   skillMatch: {
@@ -420,6 +422,10 @@ Candidate {
 **Duplicate detection:** the extracted text is normalized (lowercased, whitespace collapsed) and hashed with SHA-256. Hashing the text instead of the raw file bytes also catches the same resume re-saved or re-exported as a new PDF. Duplicates are checked **per job**: the same resume can be uploaded to different jobs, and once a candidate is deleted, their resume can be uploaded to that job again.
 
 **Why chunk embeddings are stored:** they let the API recompute every candidate's semantic score and semantic skill matches when the job changes, without re-reading or re-embedding the resumes.
+
+**Embedding model tracking:** vectors from different models are not comparable. Jobs and candidates record which model produced their vectors; when a job is next scored against (upload or rescoring), anything produced by another model (e.g. after switching `AI_PROVIDER` from `stub` to `local`) is re-embedded from the stored text first.
+
+**Keeping candidates in sync:** the jobs module publishes `job.matching-inputs-changed` and `job.deleted` events (NestJS event emitter); the candidates module listens and rescores or deletes that job's candidates before the request completes. This keeps the two modules decoupled (no circular dependency).
 
 **Pagination:** list endpoints return `Paginated<T> = { items: T[]; total: number; page: number; limit: number }`.
 
@@ -479,7 +485,8 @@ All routes are under `/api` and require authentication unless marked **public**.
 - Not logged in, expired session, removed admin, or revoked session → `401`. The frontend redirects to Login.
 - Wrong email or password → `401` "Invalid email or password". Too many login attempts → `429`.
 - Removing your own account → `400` "You cannot remove your own account". Duplicate admin email → `409`.
-- Missing file, more than one file, non-PDF, or oversized file → `400` with a descriptive error.
+- Missing file, more than one file, wrong form field, non-PDF, or unreadable PDF → `400` with a descriptive error. The file's content is checked (`%PDF-` signature), not just its declared type.
+- File larger than 5 MB → `413 Payload Too Large`.
 - No extractable text (scanned PDF) → `422`: "No text layer found; OCR is not supported."
 - Same resume already uploaded to this job → `409 Conflict`: "Resume already uploaded." The frontend shows this as an error toast; nothing is saved.
 - Upload to a closed job → `409` "This job is closed". Job skills not ready → `409` "Required skills for this job are not ready yet".
@@ -726,7 +733,7 @@ Platform features are built first using the AI stand-ins (§5.6); the real AI is
 | 2   | AI test run: embedding score separation and LLM speed/quality on the development machine                           | 3          | Done   |
 | 3   | Backend: Auth (login, cookie JWT, global guard, rate limit, seed) + Users module                                     | 8          | Done   |
 | 4   | Backend: Jobs module (incl. required skills, extraction lifecycle with stand-in)                                    | 5          | Done   |
-| 5   | Backend: Candidates (upload, PDF extraction, duplicates, skill matcher, scoring, recompute on job edits) + dashboard API | 9      |        |
+| 5   | Backend: Candidates (upload, PDF extraction, duplicates, skill matcher, scoring, recompute on job edits) + dashboard API | 9      | Done   |
 | 6   | Frontend foundation: Vite, Tailwind, routing, API client, login, protected layout, toasts                            | 6          |        |
 | 7   | Frontend: Jobs (incl. skill tags) and Users pages, profile / change password                                         | 6          |        |
 | 8   | Frontend: Dashboard, Resume Matcher, Candidate Detail                                                                | 9          |        |

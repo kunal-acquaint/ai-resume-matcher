@@ -1,3 +1,5 @@
+import { escapeRegExp } from '../../../common/utils/escape-regexp.js';
+
 /** Characters that count as part of a term, so "Java" does not match inside "JavaScript". */
 const TERM_CHAR = '[a-z0-9+#]';
 /**
@@ -7,10 +9,6 @@ const TERM_CHAR = '[a-z0-9+#]';
 const BEFORE_TERM = '[a-z0-9+#.]';
 
 const patternCache = new Map<string, RegExp>();
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
 
 function patternFor(term: string): RegExp {
   const normalized = normalizeForMatching(term);

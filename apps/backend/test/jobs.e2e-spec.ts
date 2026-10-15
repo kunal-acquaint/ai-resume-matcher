@@ -240,7 +240,10 @@ describe('Jobs (e2e)', () => {
       const job = await createJob('To Delete');
       const candidates = ctx.app.get<Connection>(getConnectionToken()).collection('candidates');
       const jobObjectId = (await jobModel.findById(job.id))?._id;
-      await candidates.insertMany([{ jobId: jobObjectId }, { jobId: jobObjectId }]);
+      await candidates.insertMany([
+        { jobId: jobObjectId, contentHash: 'a' },
+        { jobId: jobObjectId, contentHash: 'b' },
+      ]);
 
       const before = (await admin.get(`/api/jobs/${job.id}`).expect(200)).body as Job;
       expect(before.candidateCount).toBe(2);
