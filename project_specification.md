@@ -61,13 +61,15 @@ All selected libraries, models, and tools are free and open-source. Models are d
 
 ### 3.1 Frontend
 
-- **Framework:** React 19 (bundled with Vite)
-- **Language:** TypeScript
-- **Routing:** React Router (protected routes for logged-in admins)
+- **Framework:** React 19 (bundled with Vite 8)
+- **Language:** TypeScript 6.0
+- **Routing:** React Router 8 (protected routes for logged-in admins; pages code-split with `lazy`)
 - **Server State:** TanStack Query (caching, polling a job's skill extraction status)
 - **Forms:** React Hook Form + zod
 - **Styling:** Tailwind CSS v4 (modern, clean recruiter UI)
-- **Icons & UI Utilities:** Lucide React, Axios (REST calls), toast notifications
+- **Icons & UI Utilities:** Lucide React, Axios (REST calls), Sonner (toast notifications)
+- **Session handling:** the browser never sees the JWT (httpOnly cookie). The app asks `GET /api/auth/me` on load; any later `401` clears the cached session and returns the admin to the login page, which then sends them back to the page they requested.
+- **Testing & linting:** Vitest + Testing Library (jsdom), oxlint with React and accessibility (`jsx-a11y`) rules
 
 ### 3.2 Backend
 
@@ -734,9 +736,9 @@ Platform features are built first using the AI stand-ins (§5.6); the real AI is
 | 3   | Backend: Auth (login, cookie JWT, global guard, rate limit, seed) + Users module                                     | 8          | Done   |
 | 4   | Backend: Jobs module (incl. required skills, extraction lifecycle with stand-in)                                    | 5          | Done   |
 | 5   | Backend: Candidates (upload, PDF extraction, duplicates, skill matcher, scoring, recompute on job edits) + dashboard API | 9      | Done   |
-| 6   | Frontend foundation: Vite, Tailwind, routing, API client, login, protected layout, toasts                            | 6          |        |
-| 7   | Frontend: Jobs (incl. skill tags) and Users pages, profile / change password                                         | 6          |        |
-| 8   | Frontend: Dashboard, Resume Matcher, Candidate Detail                                                                | 9          |        |
+| 6   | Frontend foundation: Vite, Tailwind, routing, API client, login, protected layout, toasts                            | 6          | Done   |
+| 7   | Frontend: Jobs (incl. skill tags) and Users pages, profile / change password                                         | 6          | Done   |
+| 8   | Frontend: Dashboard, Resume Matcher, Candidate Detail                                                                | 9          | Done   |
 | 9   | Real AI: embeddings, chunking, semantic scoring and semantic skill matching                                         | 8          |        |
 | 10  | Real AI: Ollama client (streaming, structured output) for skill extraction                                          | 5          |        |
 | 11  | Synthetic dataset (PDFs) and calibration of score and skill-match thresholds                                        | 4          |        |

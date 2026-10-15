@@ -14,7 +14,7 @@
   "scripts": {
     "setup": "npm install && npm run build -w @resume-matcher/shared",
     "predev": "npm run build -w @resume-matcher/shared",
-    "dev": "concurrently --names shared,api --prefix-colors blue,green \"npm run dev -w @resume-matcher/shared\" \"npm run start:dev -w @resume-matcher/backend\"",
+    "dev": "concurrently --names shared,api,web --prefix-colors blue,green,magenta \"npm run dev -w @resume-matcher/shared\" \"npm run start:dev -w @resume-matcher/backend\" \"npm run dev -w @resume-matcher/frontend\"",
     "build": "npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
