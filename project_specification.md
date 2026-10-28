@@ -571,7 +571,7 @@ To comply with data privacy and company review guidelines:
 
 - **RAM:** 16 GB. `llama3.2:3b` uses about 2.4 GB while loaded, which leaves room for MongoDB, Node.js, the embedding model, the browser and an IDE.
 - **CPU:** any x64 CPU; no GPU required. Measured on the development machine (Intel i5-2400, 4 cores, 2011, no AVX2) in the AI test run:
-  - Embeddings: model load ~8 s at startup, then 0.1–0.4 s per resume.
+  - Embeddings: the first start downloads the model (about 23 MB, ~1.5 min on the development connection); after that it loads in under 1 s at startup, and a resume upload takes 0.1–0.6 s.
   - `llama3.2:3b`: reads prompts at ~14–30 tokens/s and generates ~2.6–2.8 tokens/s. Skill extraction (§5.4) reads only the JD and returns a short list, so it is expected to take about a minute per job. Resume uploads do not use the LLM.
   - Newer CPUs (with AVX2) are several times faster.
 - **Disk:** about 5 GB free (Ollama model ≈ 2 GB, embedding model, `node_modules`, MongoDB data).
@@ -607,6 +607,8 @@ ADMIN_PASSWORD=change-me-now
 # AI: "stub" (stand-ins, no models needed) or "local" (MiniLM + Ollama)
 AI_PROVIDER=stub
 AI_STUB_DELAY_MS=2000   # simulated LLM time for the stand-ins
+EMBEDDING_MODEL=Xenova/all-MiniLM-L6-v2
+MODEL_CACHE_DIR=.cache/models   # downloaded model files (git-ignored)
 OLLAMA_URL=http://localhost:11434
 OLLAMA_MODEL=llama3.2:3b
 OLLAMA_NUM_CTX=8192
@@ -739,7 +741,7 @@ Platform features are built first using the AI stand-ins (§5.6); the real AI is
 | 6   | Frontend foundation: Vite, Tailwind, routing, API client, login, protected layout, toasts                            | 6          | Done   |
 | 7   | Frontend: Jobs (incl. skill tags) and Users pages, profile / change password                                         | 6          | Done   |
 | 8   | Frontend: Dashboard, Resume Matcher, Candidate Detail                                                                | 9          | Done   |
-| 9   | Real AI: embeddings, chunking, semantic scoring and semantic skill matching                                         | 8          |        |
+| 9   | Real AI: embeddings, chunking, semantic scoring and semantic skill matching                                         | 8          | Done   |
 | 10  | Real AI: Ollama client (streaming, structured output) for skill extraction                                          | 5          |        |
 | 11  | Synthetic dataset (PDFs) and calibration of score and skill-match thresholds                                        | 4          |        |
 | 12  | README, final testing, performance measurements, defense prep                                                        | 5          |        |
@@ -752,5 +754,10 @@ Tests are written alongside each milestone, not in a separate phase.
 
 - MiniLM with ~200-token chunks ranked the six synthetic resumes exactly in the expected order, with a wide score spread (0.28–0.73 raw).
 - `llama3.2:3b` always produced valid JSON with a schema, but its matched/missing skill lists were unreliable, and one analysis took 2.5–3 minutes. This led to the deterministic skill matching design (§5.5) and to using the LLM only for JD skill extraction (§5.4).
+
+**Milestone 9 findings** (smoke test against a throwaway database, MERN job, five short resumes):
+
+- Ranking was in the expected order: full MERN match > same skills described only in other words > frontend-only > data analyst = accountant (both 0 %). Stored stand-in vectors were re-embedded automatically after switching to `AI_PROVIDER=local`.
+- Semantic skill matching found nothing for the resume that described its skills only in other words. Short skill names reach at most ~0.45 similarity with a matching sentence and ~0.25–0.45 with a whole chunk, below the 0.55 default; unrelated resumes stay below ~0.20. Milestone 11 calibrates the threshold and decides whether to compare skills with sentences instead of chunks.
 
 **Scope change (after milestone 4):** per-resume interview questions and summaries were removed. Resume processing became fully synchronous; the freed time (4 h from milestones 5 and 10) went to the buffer.

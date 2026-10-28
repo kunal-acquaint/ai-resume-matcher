@@ -8,6 +8,9 @@ dist/
 # Test output
 coverage/
 
+# Downloaded AI models
+.cache/
+
 # Environment files (commit only the examples)
 .env
 .env.*

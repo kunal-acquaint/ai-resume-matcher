@@ -43,6 +43,10 @@ export const envSchema = z
     ADMIN_PASSWORD: z.string().optional(),
 
     AI_PROVIDER: z.enum(['stub', 'local']).default('stub'),
+    /** Hugging Face model used for embeddings when `AI_PROVIDER=local`. */
+    EMBEDDING_MODEL: z.string().min(1).default('Xenova/all-MiniLM-L6-v2'),
+    /** Downloaded model files (relative paths resolve against the working directory). */
+    MODEL_CACHE_DIR: z.string().min(1).default('.cache/models'),
     /** Artificial delay of the stand-in LLM tasks, so "in progress" states are visible in the UI. */
     AI_STUB_DELAY_MS: z.coerce.number().int().min(0).default(2000),
 

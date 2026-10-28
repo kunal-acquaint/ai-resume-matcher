@@ -9,6 +9,8 @@ import type { Env } from './config/env.schema.js';
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
   configureApp(app);
+  // Ctrl+C / SIGTERM run the shutdown hooks (closes MongoDB and frees the embedding model).
+  app.enableShutdownHooks();
 
   const port = app.get<ConfigService<Env, true>>(ConfigService).get('PORT', { infer: true });
   await app.listen(port);
