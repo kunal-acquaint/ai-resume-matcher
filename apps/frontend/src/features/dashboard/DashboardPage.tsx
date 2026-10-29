@@ -67,7 +67,7 @@ function StatsRow() {
       <StatCard
         label="Average match score"
         value={
-          isPending ? '…' : data.averageScore === null ? '—' : formatPercent(data.averageScore)
+          isPending ? '…' : data.averageScore === null ? '-' : formatPercent(data.averageScore)
         }
         icon={Gauge}
       />
@@ -234,7 +234,7 @@ function ResumeTable() {
                             {candidate.job.title}
                           </Link>
                         ) : (
-                          '—'
+                          '-'
                         )}
                       </td>
                       <td className="py-3 pr-4">

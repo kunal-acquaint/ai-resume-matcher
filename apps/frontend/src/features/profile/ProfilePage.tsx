@@ -133,7 +133,7 @@ export function ProfilePage() {
             <div>
               <dt className="text-slate-500">Last login</dt>
               <dd className="text-slate-900">
-                {user.lastLoginAt ? formatDateTime(user.lastLoginAt) : '—'}
+                {user.lastLoginAt ? formatDateTime(user.lastLoginAt) : '-'}
               </dd>
             </div>
           </dl>
