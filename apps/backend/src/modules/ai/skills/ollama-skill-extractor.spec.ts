@@ -3,7 +3,21 @@ import {
   MAX_JOB_DESCRIPTION_CHARS,
   OllamaSkillExtractor,
   OUTPUT_SCHEMA,
+  splitGroupedSkill,
 } from './ollama-skill-extractor.js';
+
+describe('splitGroupedSkill', () => {
+  it.each([
+    ['AWS (ECS, S3, CloudWatch)', ['AWS', 'ECS', 'S3', 'CloudWatch']],
+    ['Google Cloud (GKE)', ['Google Cloud', 'GKE']],
+    ['Authentication (JWT and OAuth)', ['Authentication', 'JWT', 'OAuth']],
+    ['C++ (11/14)', ['C++']],
+    [' React ', ['React']],
+    ['CI/CD', ['CI/CD']],
+  ])('splits %j', (name, expected) => {
+    expect(splitGroupedSkill(name)).toEqual(expected);
+  });
+});
 
 const JD =
   'Senior MERN developer: React and TypeScript frontends, Node.js / Express REST APIs on ' +
@@ -62,6 +76,17 @@ describe('OllamaSkillExtractor', () => {
       { name: 'React', aliases: [] },
       { name: 'Node.js', aliases: [] },
       { name: 'Express', aliases: [] },
+    ]);
+  });
+
+  it('splits grouped skills and keeps the parts the job description mentions', async () => {
+    chat.mockResolvedValue(answer('{"skills":["AWS (ECS, Lambda)"]}'));
+
+    await expect(
+      extractor.extract('Deploy our services to AWS (ECS) on a weekly release train.'),
+    ).resolves.toEqual([
+      { name: 'AWS', aliases: [] },
+      { name: 'ECS', aliases: [] },
     ]);
   });
 

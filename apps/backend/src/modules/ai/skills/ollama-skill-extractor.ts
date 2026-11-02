@@ -95,10 +95,7 @@ export class OllamaSkillExtractor implements SkillExtractor {
 
       const skills = parseSkills(result.content);
       if (skills) {
-        return skills
-          .map((name) => name.trim())
-          .filter(Boolean)
-          .slice(0, MAX_SKILLS);
+        return skills.flatMap(splitGroupedSkill).filter(Boolean).slice(0, MAX_SKILLS);
       }
       lastProblem =
         result.doneReason === 'length'
@@ -108,6 +105,20 @@ export class OllamaSkillExtractor implements SkillExtractor {
     }
     throw new Error(`Skill extraction failed: ${lastProblem}`);
   }
+}
+
+/**
+ * The model sometimes copies a grouped phrase as one skill, e.g. "AWS (ECS, S3,
+ * CloudWatch)". A name like that never appears in a resume, so it is split into
+ * "AWS", "ECS", "S3" and "CloudWatch". Parts without a letter ("11/14") are dropped.
+ */
+export function splitGroupedSkill(name: string): string[] {
+  const grouped = /^(.+?)\s*\((.+)\)$/.exec(name.trim());
+  if (!grouped) {
+    return [name.trim()];
+  }
+  const parts = grouped[2].split(/,|\band\b/).map((part) => part.trim());
+  return [grouped[1].trim(), ...parts].filter((part) => /\p{L}/u.test(part));
 }
 
 function parseSkills(content: string): string[] | undefined {

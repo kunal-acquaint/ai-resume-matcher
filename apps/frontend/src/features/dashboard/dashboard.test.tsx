@@ -65,7 +65,7 @@ describe('DashboardPage', () => {
 
     renderRoutes(routes);
 
-    expect(await screen.findByText('—')).toBeInTheDocument();
+    expect(await screen.findByText('-')).toBeInTheDocument();
   });
 
   it('lists uploaded resumes with score, skills and uploader', async () => {

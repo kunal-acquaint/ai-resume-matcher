@@ -1,20 +1,26 @@
 import type { RouteObject } from 'react-router';
+import { FullPageSpinner } from '@/components/ui/Spinner';
 import { RequireAuth } from '@/features/auth/RequireAuth';
 import { RouteErrorPage } from '@/pages/RouteErrorPage';
 
 /**
  * Route tree (spec §14). Pages are code-split with `lazy`, so the login screen
- * doesn't download the app shell and vice versa.
+ * doesn't download the app shell and vice versa. The top-level routes show a
+ * spinner while the first page's code loads.
  */
+const pageLoading = <FullPageSpinner label="Loading" />;
+
 export const routes: RouteObject[] = [
   {
     path: '/login',
     errorElement: <RouteErrorPage />,
+    hydrateFallbackElement: pageLoading,
     lazy: { Component: async () => (await import('@/features/auth/LoginPage')).LoginPage },
   },
   {
     element: <RequireAuth />,
     errorElement: <RouteErrorPage />,
+    hydrateFallbackElement: pageLoading,
     children: [
       {
         lazy: { Component: async () => (await import('@/components/layout/AppLayout')).AppLayout },

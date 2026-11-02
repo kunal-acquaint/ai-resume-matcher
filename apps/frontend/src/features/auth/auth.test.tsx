@@ -101,6 +101,7 @@ describe('authentication flow', () => {
     const { router } = renderRoutes(routes, '/login');
 
     await waitFor(() => expect(router.state.location.pathname).toBe('/'));
-    expect(screen.getByRole('heading', { name: 'Dashboard page' })).toBeInTheDocument();
+    // The route's page is lazy-loaded, so it can render a moment after the URL changes.
+    expect(await screen.findByRole('heading', { name: 'Dashboard page' })).toBeInTheDocument();
   });
 });

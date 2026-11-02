@@ -16,9 +16,9 @@ describe('validateEnv', () => {
       AI_PROVIDER: 'stub',
       OLLAMA_MODEL: 'llama3.2:3b',
       OLLAMA_TIMEOUT_MS: 600_000,
-      SIM_FLOOR: 0.25,
+      SIM_FLOOR: 0.3,
       SIM_CEILING: 0.8,
-      SKILL_MATCH_THRESHOLD: 0.55,
+      SKILL_MATCH_THRESHOLD: 0.5,
     });
   });
 

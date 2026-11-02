@@ -33,10 +33,10 @@ The **AI-Powered Resume Matcher** is an admin-only web platform where recruiters
 
 1. **Semantic Embeddings & Cosine Similarity:** compute conceptual alignment between a Job Description and a candidate's resume (meaning-based comparison, not literal string matching).
 2. **Skill Matching:** the job's required skills are checked against the resume by text and alias matching, with embedding similarity as a fallback. This is deterministic and explainable, and every matched skill shows its evidence.
-3. **Local Large Language Model (LLM):** extracts the list of required skills (with alternative spellings) from each JD once, when the job is created; the admin can review and edit it.
+3. **Local Large Language Model (LLM):** extracts the list of required skills from each JD once (aliases come from a built-in skill dictionary), when the job is created; the admin can review and edit it.
 4. **Hybrid Match Score:** combines the semantic score with the skill-coverage ratio into a single 0–100% score, available immediately after upload.
 
-Resume processing involves no LLM call, so every resume is fully scored in about 1–2 seconds.
+Resume processing involves no LLM call, so every resume is fully scored in under a second (median 0.3 s measured, §15 M12).
 
 The tool **assists** recruiters; it does not make hiring decisions (see §12).
 
@@ -117,7 +117,7 @@ ai-resume-matcher/
 │   └── frontend/           # React + Vite (@resume-matcher/frontend)
 ├── packages/
 │   └── shared/             # Shared TypeScript types (@resume-matcher/shared)
-├── dataset/                # Synthetic resumes + JDs (see §9)
+├── docs/                   # Demo script and defense notes
 ├── package.json            # Workspaces + root scripts
 ├── package-lock.json       # Single lockfile for the whole repo
 ├── tsconfig.base.json      # Common compiler options extended by each workspace
@@ -284,7 +284,7 @@ finalScore    = 0.6 * semanticScore + 0.4 * coverage
 ```
 
 - Both parts are computed **synchronously at upload**, so the score is final immediately. It only changes if the admin edits the job's description or skills, which recalculates all of that job's candidates.
-- In the test run, raw top-3 similarities ranged from 0.28 (data analyst) to 0.73 (senior full-stack). The defaults are therefore `SIM_FLOOR=0.25` / `SIM_CEILING=0.80`, to be **calibrated** against the full synthetic dataset (§9) in milestone 11. Both live in `.env`.
+- **Calibrated in milestone 11** against the synthetic dataset (§9): off-domain resumes cluster at raw 0.27–0.31 and the best in-domain resumes reach 0.71–0.75. The defaults are therefore `SIM_FLOOR=0.30` (off-domain ≈ 0 %) and `SIM_CEILING=0.80` (the best match ≈ 85–90 %). Both live in `.env`.
 - Weights (`0.6` / `0.4`) are configurable. The rationale: semantic similarity captures overall domain fit, while coverage captures explicit requirement fulfilment.
 
 ### 5.4 LLM Task: Required Skill Extraction
@@ -312,9 +312,10 @@ The LLM has exactly one task: extracting a job's required skills from its descri
 
 **Post-processing:**
 
-1. **Grounding:** a skill is kept only if the JD mentions it: its name or a dictionary alias appears as a term, or every word of its name appears (allowing different endings, e.g. "A/B Testing" in "A/B test analysis"). This removes skills the model invents.
-2. Skills are de-duplicated (case-insensitive) and given aliases from the built-in skill dictionary (§5.5).
-3. The admin reviews the result on the job page and can add aliases or skills.
+1. **Splitting grouped names:** a name such as "AWS (ECS, S3, CloudWatch)" is split into "AWS", "ECS", "S3" and "CloudWatch", since the grouped form never appears in a resume.
+2. **Grounding:** a skill is kept only if the JD mentions it: its name or a dictionary alias appears as a term, or every word of its name appears (allowing different endings, e.g. "A/B Testing" in "A/B test analysis"). This removes skills the model invents.
+3. Skills are de-duplicated (case-insensitive) and given aliases from the built-in skill dictionary (§5.5).
+4. The admin reviews the result on the job page and can add aliases or skills.
 
 **Why names only:** in milestone 10 testing, aliases written by `llama3.2:3b` were often wrong in harmful ways ("JIRA" as an alias of Jenkins, "Pandas" of Python, so a resume mentioning JIRA would match Jenkins), and generating them tripled the time per job (50–92 s → 24–37 s without them).
 
@@ -327,7 +328,9 @@ The LLM has exactly one task: extracting a job's required skills from its descri
 For each required skill of the job, in order:
 
 1. **Text match:** the skill name or one of its aliases appears in the normalized resume text as a whole word or phrase. Matching is case-insensitive, ignores punctuation such as `.js`, and is word-bounded, so "Java" does not match "JavaScript". Evidence: `text` or `alias`, with the matched term.
-2. **Semantic match:** otherwise, the skill's embedding is compared with every resume chunk. If the best similarity is ≥ `SKILL_MATCH_THRESHOLD` (default `0.55`, calibrated in milestone 11), the skill counts as matched. Evidence: `semantic`, with the similarity and the matching passage.
+2. **Semantic match:** otherwise, the skill's embedding is compared with every resume chunk. If the best similarity is ≥ `SKILL_MATCH_THRESHOLD` (default `0.50`, calibrated in milestone 11), the skill counts as matched. Evidence: `semantic`, with the similarity and the matching passage.
+
+   **Calibration finding:** with MiniLM, a short skill name is a weak query. On the dataset, skills that a resume names reach only 0.14–0.52 against its chunks, while skills it does not name reach up to 0.43 (0.55 against single sentences, e.g. "GitHub Actions" vs "learned version control with Git"). The ranges overlap, so no threshold catches paraphrases without also matching near misses. The threshold is set above the highest near-miss similarity, which makes this step a conservative fallback that only fires on very strong evidence. Text and alias matching (with dictionary aliases and admin-editable aliases) does the real work. Comparing skills with sentences instead of chunks was measured and rejected: slightly better separation, still unsafe, and many more vectors to store per resume.
 3. Otherwise the skill is **missing**.
 
 A small built-in **skill dictionary** (`skills-dictionary.ts`) provides common aliases for popular technologies (e.g. React ↔ React.js / ReactJS; Node.js ↔ Node / NodeJS; AWS ↔ Amazon Web Services; CI/CD ↔ continuous integration). It is merged into extracted skills and used by the stand-in extractor (§5.6).
@@ -524,7 +527,7 @@ $$\text{Similarity}(A, B) = \cos(\theta) = \frac{\sum_{i=1}^{n} A_i B_i}{\sqrt{\
 
 ### 8.4 Separation of Concerns (Embeddings, Rules, LLM)
 
-- **Embeddings** (fast, ~0.1–0.4 s per resume): overall domain fit and semantic skill matching.
+- **Embeddings** (fast, median 0.3 s per resume upload including PDF extraction): overall domain fit and semantic skill matching.
 - **Deterministic rules** (instant, explainable): which required skills a resume shows.
 - **LLM** (slow, 25–40 s per job on the development machine): turning a free-text JD into a structured skill list, which a human then reviews. It runs once per job, never per resume.
 - Each technique is used where it was measured to be reliable (§15, M2), and the score never depends on the slowest or least reliable component.
@@ -543,20 +546,22 @@ $$\text{Similarity}(A, B) = \cos(\theta) = \frac{\sum_{i=1}^{n} A_i B_i}{\sqrt{\
 To comply with data privacy and company review guidelines:
 
 - Generate **6 synthetic PDF resumes** (single-column layout, real text layer) plus **1 primary JD** (Senior MERN / Full-Stack TypeScript Developer) and 1 secondary JD for variety.
-- Store them in `/dataset` with a `README.md` stating they are synthetic.
+- They were used only during development for calibration and the dry runs, and are not kept in the repository; the measured results below are the record.
 - Profiles for the live demonstration, listed in expected ranking order:
 
-| #   | Candidate           | Profile                                                             | Expected Tier |
-| :-- | :------------------ | :------------------------------------------------------------------ | :------------ |
-| A   | Senior Full-Stack   | Strong React, TypeScript, Node.js, MongoDB; 6+ years                | High          |
-| E   | Mid-Level MERN      | Solid MERN stack but no testing, CI/CD, or cloud experience         | High–Medium   |
-| B   | Java/Spring Backend | Strong backend engineering, minimal React exposure                  | Medium        |
-| F   | DevOps Engineer     | Docker, Kubernetes, AWS, CI/CD; light scripting, no frontend        | Medium–Low    |
-| C   | Fresh Graduate      | HTML/CSS and basic JavaScript projects                              | Low–Medium    |
-| D   | Data Analyst        | Excel, SQL, Power BI (demonstrates correct out-of-domain rejection) | Low           |
+| #   | Candidate           | Profile                                                             | Expected Tier | Measured (MERN job) |
+| :-- | :------------------ | :------------------------------------------------------------------ | :------------ | ------------------: |
+| A   | Senior Full-Stack   | Strong React, TypeScript, Node.js, MongoDB; 6+ years                | High          |                88 % |
+| E   | Mid-Level MERN      | Solid MERN stack but no testing, CI/CD, or cloud experience         | High–Medium   |                61 % |
+| F   | DevOps Engineer     | Docker, Kubernetes, AWS, CI/CD; light scripting, no frontend        | Medium        |                48 % |
+| B   | Java/Spring Backend | Strong backend engineering, minimal React exposure                  | Medium–Low    |                32 % |
+| C   | Fresh Graduate      | HTML/CSS and basic JavaScript projects                              | Low–Medium    |                23 % |
+| D   | Data Analyst        | Excel, SQL, Power BI (demonstrates correct out-of-domain rejection) | Low           |                 0 % |
 
-- **Calibration step:** run all 6 against the JD, record `semanticRaw` values and skill-match results, then set `SIM_FLOOR` / `SIM_CEILING` / `SKILL_MATCH_THRESHOLD` so the tiers separate clearly. The final percentage ranges shown in the demo are taken from these measured results, not set in advance.
-- **Demo preparation:** create the demo jobs before presenting so their skills are already extracted; uploading the six resumes then takes seconds.
+- **Measured order:** F (DevOps) ranks above B (Java), the reverse of the original plan. The MERN JD asks for Docker, AWS (ECS, S3, CloudWatch) and GitHub Actions, which the DevOps resume covers (8 of 22 skills, semantic raw 0.58), while the Java resume shares mainly the backend concepts (4 of 22, raw 0.51). The resumes were not rewritten to force the planned order; the expected tiers were updated instead.
+- **Secondary JD (Data Analyst):** the data analyst scores 87 % and every other resume 0–8 %, which shows the same resume set ranking correctly for a different role.
+- **Calibration step:** a one-off calibration script ran all resumes against both JDs with the configured AI (no database) and printed raw similarities, coverage, final scores and the skill-similarity ranges. `SIM_FLOOR` / `SIM_CEILING` / `SKILL_MATCH_THRESHOLD` were set from that output (§5.3, §5.5). The percentages in the demo come from these measured results, not set in advance; they vary by a few points with the skills the LLM extracts.
+- **Demo preparation:** create the demo jobs before presenting so their skills are already extracted; uploading the resumes then takes seconds.
 - **Caveat for the defense:** the synthetic resumes were written with the JD in mind, so they are cleaner than real resumes. Results on them demonstrate the approach, not real-world accuracy.
 
 ---
@@ -567,7 +572,7 @@ To comply with data privacy and company review guidelines:
 
 **Minimum hardware** (matches the author's development machine):
 
-- **RAM:** 16 GB. `llama3.2:3b` uses about 2.4 GB while loaded, which leaves room for MongoDB, Node.js, the embedding model, the browser and an IDE.
+- **RAM:** 16 GB. `llama3.2:3b` uses about 3 GB while loaded (3.1 GB measured with `num_ctx 8192`), which leaves room for MongoDB, Node.js, the embedding model, the browser and an IDE.
 - **CPU:** any x64 CPU; no GPU required. Measured on the development machine (Intel i5-2400, 4 cores, 2011, no AVX2) in the AI test run:
   - Embeddings: the first start downloads the model (about 23 MB, ~1.5 min on the development connection); after that it loads in under 1 s at startup, and a resume upload takes 0.1–0.6 s.
   - `llama3.2:3b`: reads prompts at ~14–30 tokens/s and generates ~2.6–2.8 tokens/s. Skill extraction (§5.4) reads only the JD and returns a short list of names: measured 24–37 s per job, plus a few seconds when Ollama first loads the model. Resume uploads do not use the LLM.
@@ -612,10 +617,10 @@ OLLAMA_MODEL=llama3.2:3b
 OLLAMA_NUM_CTX=8192
 OLLAMA_TIMEOUT_MS=600000
 
-# Scoring (§5.3, §5.5); calibrated in milestone 11
-SIM_FLOOR=0.25
+# Scoring (§5.3, §5.5); calibrated in milestone 11 on a synthetic dataset
+SIM_FLOOR=0.30
 SIM_CEILING=0.80
-SKILL_MATCH_THRESHOLD=0.55
+SKILL_MATCH_THRESHOLD=0.50
 SCORE_WEIGHT_SEMANTIC=0.6
 SCORE_WEIGHT_COVERAGE=0.4
 ```
@@ -668,8 +673,8 @@ When switching to the real AI (`AI_PROVIDER=local`), also run `ollama pull llama
   - **Jobs:** CRUD; skill extraction lifecycle (`extracting` → `ready`, failure → `failed` + retry); editing skills recomputes candidate scores; uploads to a closed job or a job without ready skills → `409`; deleting a job deletes its candidates.
   - **Candidates:** upload returns the final score and skill match with evidence; scanned or non-PDF files are rejected; duplicate upload to the same job → `409` (allowed for a different job or after deletion); editing a job's skills or description recomputes its candidates' scores; list filters, search, sorting and pagination.
   - **Dashboard:** stats match the seeded data.
-- **End-to-end smoke test:** log in, create a job, wait for skills, upload one sample PDF from `/dataset`, and see its score and skill breakdown.
-- **Manual demo checklist:** all 6 dataset resumes rank in the expected tier order with `AI_PROVIDER=local`.
+- **End-to-end smoke test:** log in, create a job, wait for skills, upload one sample PDF, and see its score and skill breakdown.
+- **Manual demo checklist:** strong, partial and unrelated sample resumes rank in the expected tier order with `AI_PROVIDER=local`.
 
 ---
 
@@ -741,8 +746,8 @@ Platform features are built first using the AI stand-ins (§5.6); the real AI is
 | 8   | Frontend: Dashboard, Resume Matcher, Candidate Detail                                                                | 9          | Done   |
 | 9   | Real AI: embeddings, chunking, semantic scoring and semantic skill matching                                         | 8          | Done   |
 | 10  | Real AI: Ollama client (streaming, structured output) for skill extraction                                          | 5          | Done   |
-| 11  | Synthetic dataset (PDFs) and calibration of score and skill-match thresholds                                        | 4          |        |
-| 12  | README, final testing, performance measurements, defense prep                                                        | 5          |        |
+| 11  | Synthetic dataset (PDFs) and calibration of score and skill-match thresholds                                        | 4          | Done   |
+| 12  | README, final testing, performance measurements, defense prep                                                        | 5          | Done   |
 |     | **Buffer**                                                                                                         | 6          |        |
 |     | **Total**                                                                                                          | **80**     |        |
 
@@ -757,5 +762,27 @@ Tests are written alongside each milestone, not in a separate phase.
 
 - Ranking was in the expected order: full MERN match > same skills described only in other words > frontend-only > data analyst = accountant (both 0 %). Stored stand-in vectors were re-embedded automatically after switching to `AI_PROVIDER=local`.
 - Semantic skill matching found nothing for the resume that described its skills only in other words. Short skill names reach at most ~0.45 similarity with a matching sentence and ~0.25–0.45 with a whole chunk, below the 0.55 default; unrelated resumes stay below ~0.20. Milestone 11 calibrates the threshold and decides whether to compare skills with sentences instead of chunks.
+
+**Milestone 11 findings** (calibration script on the synthetic dataset; the dataset and script were removed from the repository after milestone 12):
+
+- Raw similarities: in-domain 0.47–0.75, off-domain 0.27–0.31. `SIM_FLOOR` moved from 0.25 to 0.30 so off-domain resumes score ≈ 0 % instead of 3–11 %; `SIM_CEILING` stays at 0.80.
+- Final MERN scores 88 / 61 / 48 / 32 / 23 / 0 % (gaps of 9–27 points between neighbouring tiers); Data Analyst JD: 87 % for the analyst, 0–8 % for the rest.
+- Semantic skill matching cannot separate present from absent skills reliably (§5.5); `SKILL_MATCH_THRESHOLD` moved from 0.55 to 0.50, just above the highest near-miss chunk similarity (0.43), as a conservative fallback. Sentence-level matching was measured and rejected.
+
+**Milestone 12 findings** (final testing and performance, development machine, `AI_PROVIDER=local`):
+
+- **Full browser run** (Chrome, real AI): login and redirect, job creation, skills ready after ~28 s, all six dataset resumes matched through the UI in the expected tier order, duplicate upload rejected with a toast, dashboard and candidate detail correct, no console errors apart from the expected 401 (session check before login) and 409 (duplicate).
+- **Fixes from final testing:** the LLM once returned "AWS (ECS, S3, CloudWatch)" as a single skill, which can never match a resume; grouped names are now split (§5.4). A React Router warning about a missing hydrate fallback was fixed, one frontend test had a race with a lazy-loaded page, and one still expected the old "—" placeholder. `npm audit fix` removed six advisories (multer, body-parser, undici, qs, fast-uri) with lockfile-only updates.
+- **Performance:**
+
+| Operation                                        | Measured                                                 |
+| :----------------------------------------------- | :------------------------------------------------------- |
+| Backend startup (model cached), stub / local     | ~6.3 s / ~5.8 s (the model itself loads in < 1 s)        |
+| Resume upload, full HTTP round trip (n = 12)     | median 311 ms, max 759 ms (first upload)                 |
+| Rescoring 6 candidates after a skill edit        | median 375 ms                                            |
+| `GET /candidates` (20) / `GET /dashboard/stats`  | median 21 ms / 16 ms                                     |
+| `GET /health` (includes an embedding and Ollama) | median 45 ms                                             |
+| Skill extraction per job                         | 24–70 s (slower when Ollama first loads the model or the CPU is busy; jobs run one at a time) |
+| Memory                                           | backend 207 MB after start, 218 MB after uploads; Ollama 3.1 GB |
 
 **Scope change (after milestone 4):** per-resume interview questions and summaries were removed. Resume processing became fully synchronous; the freed time (4 h from milestones 5 and 10) went to the buffer.

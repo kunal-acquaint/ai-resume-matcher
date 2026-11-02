@@ -13,7 +13,8 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     // Same-origin API calls in development, so the httpOnly session cookie just works.
-    proxy: { '/api': 'http://localhost:3000' },
+    // API_PROXY_TARGET points the dev server at a backend on another port.
+    proxy: { '/api': process.env.API_PROXY_TARGET ?? 'http://localhost:3000' },
   },
   test: {
     globals: true,

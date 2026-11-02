@@ -55,9 +55,9 @@ export const envSchema = z
     OLLAMA_NUM_CTX: z.coerce.number().int().positive().default(8192),
     OLLAMA_TIMEOUT_MS: z.coerce.number().int().positive().default(600_000),
 
-    SIM_FLOOR: z.coerce.number().min(-1).max(1).default(0.25),
+    SIM_FLOOR: z.coerce.number().min(-1).max(1).default(0.3),
     SIM_CEILING: z.coerce.number().min(-1).max(1).default(0.8),
-    SKILL_MATCH_THRESHOLD: z.coerce.number().min(0).max(1).default(0.55),
+    SKILL_MATCH_THRESHOLD: z.coerce.number().min(0).max(1).default(0.5),
     SCORE_WEIGHT_SEMANTIC: z.coerce.number().min(0).max(1).default(0.6),
     SCORE_WEIGHT_COVERAGE: z.coerce.number().min(0).max(1).default(0.4),
 
