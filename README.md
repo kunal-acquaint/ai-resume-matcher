@@ -44,6 +44,8 @@ The full design, with the measurements behind each decision, is in [project_spec
 
 ## Getting started
 
+For a full step-by-step guide, including installing the prerequisites on Windows, macOS and Ubuntu, see [setup.md](setup.md).
+
 ### Prerequisites
 
 - **Node.js 22.12+** (see `.nvmrc`)
@@ -56,7 +58,7 @@ The full design, with the measurements behind each decision, is in [project_spec
 
 ```bash
 npm run setup                                    # install dependencies and build shared types
-cp apps/backend/.env.example apps/backend/.env   # then set JWT_SECRET and the ADMIN_* values
+cp apps/backend/.env.example apps/backend/.env   # then fill in every value (see setup.md §5)
 npm run seed:admin                               # create the first admin (safe to re-run)
 npm run dev                                      # shared types, backend and frontend in watch mode
 ```
